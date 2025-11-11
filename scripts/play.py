@@ -43,12 +43,23 @@ args_cli.wandb = bool(args_cli.wandb or (len(args_cli.wandb_run) and len(args_cl
 if args_cli.video:
     args_cli.enable_cameras = True
 
+# suppress logs
+if not hasattr(args_cli, "kit_args"):
+    args_cli.kit_args = ""
+args_cli.kit_args += " --/log/level=error"
+args_cli.kit_args += " --/log/fileLogLevel=error"
+args_cli.kit_args += " --/log/outputStreamLevel=error"
+
 # clear out sys.argv for Hydra
 sys.argv = [sys.argv[0]] + hydra_args
 
 # launch omniverse app
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
+
+ISAAC_PREFIXES = ("--/log/", "--/app/", "--/renderer=", "--/physics/")
+hydra_args = [arg for arg in hydra_args if not arg.startswith(ISAAC_PREFIXES)]
+sys.argv = [sys.argv[0]] + hydra_args
 
 """Rest everything follows."""
 
