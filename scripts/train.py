@@ -64,7 +64,7 @@ import shutil
 import torch
 from datetime import datetime
 
-from robot_rl.runners import DistillationRunner, OnPolicyRunner, ProbeRunner
+from robot_rl.runners import DistillationRunner, OnPolicyRunner
 
 from isaaclab.envs import (
     DirectMARLEnv,
