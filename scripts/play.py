@@ -19,14 +19,10 @@ parser.add_argument(
     "--agent", type=str, default="rsl_rl_cfg_entry_point", help="Name of the RL agent configuration entry point."
 )
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
-parser.add_argument("--estimator", action="store_true", default=False, help="Learn estimator during training.")
-parser.add_argument("--symmetric", action="store_true", default=False, help="Enforce value symmetry during training.")
 parser.add_argument("--wandb_run", type=str, default="", help="Run from WandB.")
 parser.add_argument("--wandb_model", type=str, default="", help="Model from WandB.")
 parser.add_argument("--wandb", action="store_true", default=False, help="Select WandB run.")
-parser.add_argument("--plot", type=str, default="", help="Plot config. Options[base, contact].")
-parser.add_argument("--delay_steps", type=int, default=0, help="Number of time steps to delay plotting.")
-parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
+parser.add_argument("--real_time", action="store_true", default=False, help="Run in real-time, if possible.")
 parser.add_argument("--convert", action="store_true", default=False, help="Convert to JIT & onnx.")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
@@ -72,9 +68,6 @@ from datetime import datetime
 
 from robot_rl.runners import DistillationRunner, OnPolicyRunner
 
-from hcrl_isaaclab.frameworks.robot_viz import Plotter
-from plot_configs import configs
-
 from isaaclab.utils.io import dump_yaml
 from isaaclab.envs import (
     DirectMARLEnv,
@@ -89,7 +82,6 @@ from isaaclab.utils.pretrained_checkpoint import get_published_pretrained_checkp
 
 from isaaclab_rl.rsl_rl import RslRlBaseRunnerCfg, RslRlVecEnvWrapper, export_policy_as_jit, export_policy_as_onnx
 
-import hcrl_isaaclab.tasks  # noqa: F401
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
@@ -118,9 +110,6 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     if agent_cfg.run_name:
         log_dir += f"_{agent_cfg.run_name}"
     log_dir = os.path.join(log_root_path, log_dir)
-    if args_cli.plot:
-        plot_dir = os.path.join(log_dir, "plots")
-        os.makedirs(plot_dir, exist_ok=True)
 
     # specify directory for logging runs: {time-stamp}_{run_name}
     if agent_cfg.resume:
@@ -177,8 +166,6 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # obtain the trained policy for inference
     policy = runner.get_inference_policy(device=env.unwrapped.device)
-    if args_cli.estimator:
-        estimator = runner.get_inference_estimator(unnorm=True, device=env.unwrapped.device)  # type: ignore
 
     if args_cli.convert:
         policy_nn = runner.alg.policy
@@ -203,10 +190,6 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # reset environment
     obs = env.get_observations()
     timestep = 0
-    # create a plotter
-    if args_cli.plot:
-        log = Plotter(env.unwrapped, plot_configs=configs[args_cli.plot], debug=False)
-    env_idx = env.unwrapped.cfg.viewer.env_index
     # simulate environment
     while simulation_app.is_running():
         start_time = time.time()
@@ -214,21 +197,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         with torch.inference_mode():
             # agent stepping
             actions = policy(obs)
-            if args_cli.estimator:
-                estimate = estimator(obs)
             # env stepping
-            obs, _, _, extras = env.step(actions)
-            if timestep >= args_cli.delay_steps and args_cli.plot and "log" in extras["observations"].keys():
-                log_obs = extras["observations"]["log"]
-                if args_cli.estimator:
-                    estimate_flat = estimate[env_idx].flatten().tolist()
-                    log_obs["estimate"] = estimate_flat
+            obs, _, _, _ = env.step(actions)
 
-                log.log(
-                    actions=actions[env_idx].flatten().tolist(),
-                    torques=env.unwrapped.scene["robot"].data.applied_torque[env_idx].flatten().tolist(),
-                    **log_obs,
-                )
         if args_cli.video:
             timestep += 1
             # Exit the play loop after recording one video
@@ -239,10 +210,6 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         sleep_time = dt - (time.time() - start_time)
         if args_cli.real_time and sleep_time > 0:
             time.sleep(sleep_time)
-    # save logs
-    if args_cli.plot:
-        custom_plots = None  # TODO
-        log.plot(plot_dir, custom_plots=custom_plots)
 
     # close the simulator
     env.close()
