@@ -3,47 +3,54 @@ import sys
 import shutil
 import subprocess
 import os
-
-ISAACLAB_DIR = "/workspace/isaaclab"
-source_dir = os.path.join(ISAACLAB_DIR, "source")
-RESOURCES_DIR = os.path.join(source_dir, "hcrl_isaaclab", "resources")
-hcrl_robots_dir = os.path.join(RESOURCES_DIR, "hcrl_robots")
+import json
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--job-script", type=str, help="Job script to run.")
 parser.add_argument(
-    "--job-script", type=str, default=f"{source_dir}/hcrl_isaaclab/scripts/train.py", help="Job script to run."
+    "--file-mounts",
+    type=str,
+    default=None,
+    help=("Dictionary of python modules to mount to specific directories."),
+)
+parser.add_argument(
+    "--run-start-commands",
+    type=str,
+    default=None,
+    help=("List of commands to execute at the start of the run."),
 )
 args, remaining_args = parser.parse_known_args()
 
 
 if __name__ == "__main__":
     # copy all python_packages into the isaaclab source/ dir
+    file_mounts = json.loads(args.file_mounts)
     python_packages = [p for p in sys.path if "/py_modules_files/" in p]
-    folder_names: list[str] = []
+    assert len(python_packages) == len(file_mounts), (
+        "Mismatched length between python_packages and file_mounts -- configuration may be corrupted!"
+    )
     for p in python_packages:
-        shutil.copytree(p, source_dir, dirs_exist_ok=True)
-        folder_names += os.listdir(p)
+        name = os.listdir(p)[0]
+        shutil.copytree(os.path.join(p, name), file_mounts[name], dirs_exist_ok=True)
 
-    # make symlink to hcrl_robots
-    os.makedirs(RESOURCES_DIR, exist_ok=True)
-    if os.path.exists(hcrl_robots_dir):
-        os.remove(hcrl_robots_dir)
-    os.symlink(os.path.join(ISAACLAB_DIR, "hcrl_robots"), os.path.join(RESOURCES_DIR, "hcrl_robots"))
+    # run other commands for setup
+    run_start_commands = json.loads(args.run_start_commands)
+    for cmd in run_start_commands:
+        subprocess.run(cmd, shell=True)
 
     # install dependencies of new modules
-    for name in folder_names:
-        if os.path.exists(os.path.join(source_dir, name, "setup.py")):
-            subprocess.run([sys.executable, "-m", "pip", "install", "--editable", os.path.join(source_dir, name)])
+    for mount_point in file_mounts.values():
+        if os.path.exists(os.path.join(mount_point, "setup.py")):
+            subprocess.run([sys.executable, "-m", "pip", "install", "--editable", mount_point])
 
     # run train script
-    print(f"Executing {sys.executable} on {args.job_script} with args {remaining_args}")
-    subprocess.run([sys.executable, args.job_script, *remaining_args])
+    job_script = args.job_script
+    print(f"Executing {sys.executable} on {job_script} with args {remaining_args}")
+    subprocess.run([sys.executable, job_script, *remaining_args])
 
-    # clean up symlink and copied directories
-    os.remove(hcrl_robots_dir)
-    for name in folder_names:
-        folder = os.path.join(source_dir, name)
-        if os.path.isdir(folder):
-            shutil.rmtree(folder)
+    # clean up copied directories
+    for mount_point in file_mounts.values():
+        if os.path.isdir(mount_point):
+            shutil.rmtree(mount_point)
         else:
-            os.remove(folder)
+            os.remove(mount_point)
